@@ -11,56 +11,193 @@
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       body { font: 13px Helvetica, Arial; }
-      form { background: #000; padding: 3px; position: fixed; bottom: 0; width: 100%; }
-      form input { border: 0; padding: 10px; width: 90%; margin-right: .5%; }
-      form button { width: 9%; background: rgb(130, 224, 255); border: none; padding: 10px; }
-      #messages { list-style-type: none; margin: 0; padding: 0; }
-      #messages li { padding: 5px 10px; }
-      #messages li:nth-child(odd) { background: #eee; }
+      .e-roomFull{
+        display:none;
+      }
+      .e-game{
+        display:none;
+      }
+      .e-game-con{
+        text-align:center;
+        background:#f6514b;
+      }
+      .e-mobileEnter{
+        display:none;
+      }
+      .e-mobileEnter input{
+        display:none;
+      }
+      .e-again{
+        display:none;
+      }
   </style>
   <script src="lib/socket.io.js"></script>
   <script src="lib/fastclick.js"></script>
   <script src="lib/jquery-1.7.2.min.js"></script>
+  <script src="lib/shake.js"></script>
   <script src="js/main.js"></script>
   <script>
     jQuery(document).ready(function($) {
-      var socket = io();
-      //接受用户
-      socket.on('setUser', function(msg){
-        $('#user').append($('<li>').text('user'+msg.name+"加入游戏").attr('id', msg.name));
-      });
+    var socket = io();
 
-
-      socket.on('checkUser', function(msg){
-        $('#user').append($('<li>').text(msg.name));
-      });
-
-
-      //判断是否为移动端设备
-
+    //解析url里是否有“phone”的字符段
     function GetQueryString(name)
     {
          var reg = new RegExp("(^|&)"+ name +"=([^&]*)(&|$)");
          var r = window.location.search.substr(1).match(reg);
          if(r!=null)return  unescape(r[2]); return null;
     }
+
+    //判断是否为移动端设备
     if(GetQueryString('device')=="phone"){
-        //here is the control on mobile device
-        socket.emit('checkUser', { name: 'test' });
+
+        $('.e-userEnter').hide();
+        $('.e-mobileEnter').show();
+
+        //向服务端推送检查用户的请求
+        socket.emit('checkUser');
+
+        
+        //给body设置辨识符
+        socket.on('setUser',function(msg){
+            if(!$('body').attr('data-status')){
+                $('body').attr('data-status',true);
+                $('body').attr('data-id','user'+msg.userNum);
+            }
+        })
+
+        //server接受信息，房间满了之后显示房间已满的提示
+        socket.on('roomFull',function(){
+            if(!$('body').attr('data-status')){
+                $('.e-mobileEnter,.e-userEnter').hide();
+                $('.e-roomFull').show();
+            }
+        })
 
     }else{
-        //here is the control on host page
+        //非手机环境下，显示用户进入情况
+        socket.on('setUser', function(msg){
+            //判断用户是否多余两个
+            if(msg.userNum<=2){
+                $('#user').append($('<li>').text('user'+msg.userNum+"加入游戏").attr('id', msg.userNum));
+            }
+          });
+
+
+        //接收结果后，显示再来一局
+        socket.on('backResult',function(){
+            $('.e-game-con').hide();
+            $('.e-again').show();
+        })
     }
+
+
+    //等待用户进入后
+    socket.on('showGame',function(){
+        $('.e-userEnter,.e-mobileEnter,.e-roomFull').hide();
+        $('.e-game').show();
+    })
+
+    //晃动手机进行判断
+     var myShakeEvent = new Shake({
+            threshold: 15
+        });
+
+        // start listening to device motion
+        myShakeEvent.start();
+
+        // register a shake event
+        window.addEventListener('shake', shakeEventDidOccur, false);
+
+        //shake event callback
+        function shakeEventDidOccur () {
+            //判断当前页面是否是在用户序列里
+           
+            /* Act on the event */
+            if($('body').attr('data-status')=='true' && $('.e-game').is(":visible")){
+                socket.emit('shakePhone',$('body').attr('data-id'));
+                //设置status为false，防止由于html5 方向判断不灵敏带来的多次请求问题
+                $('body').attr('data-status', 'false');
+            }
+      
+        }
+
+    //接收shake之后结果
+    socket.on('backResult',function(data){
+        console.log(data)
+        for(var i=0;i<data.length;i++){
+            if($('body').attr('data-id')==data[i].name){
+                console.log($('body').attr('data-id'))
+                $('.e-game-con').hide();
+                $('.e-gameResult').text(data[i].result)
+            }
+        }
+
+    })
+
+
+
+    //再来一局 
+    $('.e-again input').click(function(event) {
+        /* Act on the event */
+        socket.emit('gameAgain')
+    });
+
+    socket.on('rePlay',function(){
+        $('.e-again').hide();
+        $('.e-game-con').show();
+        $('.e-gameResult').text(' ');
+        $('body').attr('data-status', 'true');
+    })
+
 
   });
 </script>
 </head>
 <body>
-<div>
-    <h2>石头剪刀布，看谁最厉害？</h2><br>
-    <h3>请扫描下方二维码进入游戏</h3><br>
-    <div><img src="images/qr.jpg"></div> 
+<!-- 初始页面-PC主页 -->
+<div class="e-userEnter">
+    <div>
+        <h2>石头剪刀布，看谁最厉害？</h2><br>
+        <h3>请扫描下方二维码进入游戏</h3><br>
+        <div><img src="images/qr.jpg"></div> 
+    </div>
+    <div><ul id="user"></ul></div>
 </div>
-<div><ul id="user"></ul></div>
+
+<!-- 初始页面-Mobile主页 -->
+<div class="e-mobileEnter">
+    <h2>石头剪刀布，看谁最厉害？</h2>
+    <p>您已进入游戏，等待其他玩家加入...</p>
+</div>
+
+
+<!-- 房间人满后显示页面 -->
+<div class="e-roomFull">
+    <h3>房间已满，请待会儿再来玩吧！</h3>
+</div>
+
+<!-- 游戏界面 -->
+<div class="e-game">
+    <!-- 游戏内容区域 -->
+    <div class="e-game-con">
+        <br>
+        <h3>请晃动手机！<br>
+        <img src="http://sn.189.cn/imCroePlatform/activity/LLYX1016/images/shake-yes.gif" alt="" width="320">
+        </h3>
+        <ul>
+            <li>
+            </li>
+            <li></li>
+        </ul>
+    </div>
+    <!-- 游戏结果区域 -->
+    <div class="e-gameResult">
+        
+    </div>
+</div>
+
+<div class="e-again"><input type="button" value="再来一局"></div>
+
 
 </body>
